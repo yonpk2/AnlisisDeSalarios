@@ -1,0 +1,352 @@
+---
+title: "Caso Pŕactico Final Evaluable."
+author: "Yonatan Eleuterio"
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+Tomaremos el dataset **Salaries.csv** *El conjunto de datos consiste en los salarios de nueve meses recogidos de 397 profesores universitarios en los EE.UU. durante 2008 y 2009. Además de los salarios, también se recogió el rango del profesor, el sexo, la disciplina, los años desde el doctorado y los años de servicio. Así, hay un total de 6 variables, que se describen a continuación.*
+
+```         
+  1. rank: Categórica - de profesor asistente, profesor asociado o catedrático
+  2. discipline: Categórica - Tipo de departamento en el que trabaja el profesor, ya sea aplicado (B) o teórico (A)
+  3. yrs.since.phd: Continuo - Número de años desde que el profesor obtuvo su doctorado
+  4. yrs.service: Continuo - Número de años que el profesor ha prestado servicio al departamento y/o a la universidad
+  5. sex: Categórico - Sexo del profesor, hombre o mujer
+  6. salary: Continuo - Sueldo de nueve meses del profesor (USD)
+```
+
+El objetivo de esta práctica consiste en realizar un estudio íntegro del dataset para terminar implementando un modelo lineal regularizado que realice predicciones sobre el salario a percibir de un profesor. Asimismo, se pedirá aprovechar la explicabilidad de estos modelos y los estudios estadísticos realizados para arrojar intuiciones y dependencias en los datos.
+
+Para ello, se pide al estudiante que realice los siguientes pasos:
+
+## 1.Carga los datos. Realiza una inspección por variables de la distribución de salarios en función de cada atributo visualmente. Realiza las observaciones pertinentes. ¿Qué variables son mejores para separar los datos?
+
+```{r}
+# Cargar librerías necesarias
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(glmnet)
+
+# Cargar los datos
+data <- read.csv("Salaries.csv")
+head(data)
+
+```
+
+```{r}
+# Exploración inicial
+summary(data)
+str(data)
+
+```
+
+Para entender la distribución de los salarios en función de cada variable, realizaremos gráficos para cada atributo categórico y continuo.
+
+```{r}
+# Visualizaciones
+# Histograma de salarios
+ggplot(data, aes(x = salary)) +
+  geom_histogram(binwidth = 10000, fill = "steelblue") +
+  labs(title = "Distribución de Salarios", x = "Salario", y = "Frecuencia")
+
+```
+
+### Histograma de salarios
+
+-   **Sesgo a la derecha**: La mayoría de los profesores ganan salarios similares, pero hay un grupo más pequeño que gana significativamente más.
+
+-   **Variabilidad**: Existe una amplia gama de salarios, lo que sugiere que muchos factores influyen en la remuneración. Posibles grupos: Los picos y valles en el histograma podrían indicar la existencia de grupos de profesores con características similares (por ejemplo, rango, disciplina).
+
+-   **Valores atípicos**: Algunos profesores tienen salarios extremadamente altos, lo que podría distorsionar los resultados y requerir un análisis más detallado.
+
+```{r}
+# Distribución del salario por rango
+ggplot(data, aes(x=rank, y=salary,fill=rank)) + 
+  geom_boxplot() + 
+  ggtitle("Distribución del Salario por Rango")
+```
+
+### Distribución del salario por rango:
+
+-   Los profesores titulares ("**Prof**") tienen una mayor dispersión en sus salarios, con algunos valores atípicos que superan los 200,000 USD. Esto indica que en este rango existen mayores variaciones salariales.
+
+-   Los profesores asociados ("**AssocProf**") tienen una mediana salarial mayor que los profesores asistentes ("**AsstProf**"), pero menor que la de los titulares.
+
+-   Los profesores asistentes presentan una menor dispersión salarial, y la mediana de sus salarios es considerablemente inferior a la de los otros rangos.
+
+```{r}
+# Distribución del salario por disciplina
+ggplot(data, aes(x=discipline, y=salary, fill = discipline)) + 
+  geom_boxplot() + 
+  ggtitle("Distribución del Salario por Disciplina")
+```
+
+### Distribución del salario por disciplina:
+
+-   Los profesores de la disciplina **"B" (departamentos aplicados)** tienden a tener una mediana salarial ligeramente superior a los de la disciplina **"A" (departamentos teóricos)**.
+
+-   La dispersión salarial es mayor en la disciplina "B", donde también se observan valores atípicos altos, superando los 200,000 USD. Estos gráficos permiten observar tendencias salariales en función de variables categóricas, y sugieren que tanto el rango como la disciplina pueden influir significativamente en el salario de los profesores.
+
+```{r}
+# Distribución del salario por sexo
+ggplot(data, aes(x=sex, y=salary ,fill=sex)) + 
+  geom_boxplot() + 
+  ggtitle("Distribución del Salario por Sexo")
+```
+
+### Distribución del salario por sexo:
+
+-   **Salarios medianos:** El salario mediano de los hombres es significativamente más alto que el de las mujeres. La línea horizontal dentro de cada caja representa el valor medio, y podemos observar una clara diferencia entre ambos grupos.
+
+-   **Dispersión de los datos**: Los salarios de los hombres presentan una mayor dispersión o variabilidad que los de las mujeres. Esto significa que hay una mayor diferencia entre los salarios más altos y más bajos entre los hombres en comparación con las mujeres.
+
+-   **Valores atípicos:** Se observan varios valores atípicos en los salarios de los hombres, especialmente en la parte superior del rango. Estos valores representan salarios excepcionalmente altos en comparación con el resto de los datos.
+
+-   **Solapamiento:** A pesar de las diferencias en los salarios medianos y la dispersión, existe un cierto solapamiento entre las distribuciones de ambos sexos. Esto indica que hay mujeres con salarios altos y hombres con salarios bajos.
+
+```{r}
+
+# Distribución del salario en función de los años de experiencia
+ggplot(data, aes(x=yrs.since.phd, y=salary)) + 
+  geom_point() + 
+  geom_smooth(method="lm") +
+  ggtitle("Salario vs Años desde el PhD")
+```
+
+### Distribución del salario en función de los años de experiencia (PhD):
+
+-   **Tendencia positiva:** Existe una tendencia general ascendente entre el número de años transcurridos desde la obtención del doctorado y el salario. Esto sugiere que a medida que aumenta la experiencia post-doctoral, también tiende a aumentar el salario.
+
+-   **Relación lineal:** La línea azul ajustada a los datos indica que la relación entre ambas variables puede aproximarse a una línea recta. Sin embargo, es importante notar que la relación no es perfecta y hay una considerable dispersión de los datos alrededor de la línea.
+
+-   **Dispersión de los datos:** Los puntos de datos no se encuentran perfectamente alineados sobre la línea de tendencia, lo que indica que otros factores además de los años desde el PhD influyen en el salario.
+
+-   **No linealidad potencial:** Aunque la línea recta es una buena aproximación, es posible que exista una relación no lineal subyacente. Algunos puntos de datos, especialmente en los extremos, podrían sugerir una curva en lugar de una línea recta.
+
+-   **Valores atípicos:** No se observan valores atípicos muy pronunciados en este gráfico, lo que sugiere que los datos son relativamente limpios.
+
+    **En resumen,** el gráfico muestra una relación positiva entre los años desde el PhD y el salario, lo que indica que, en general, a mayor experiencia, mayor salario. Sin embargo, otros factores también juegan un papel importante en la determinación del salario, y la relación no es completamente lineal.
+
+```{r}
+# Distribución del salario en función de los años de servicio
+ggplot(data, aes(x=yrs.service, y=salary)) + 
+  geom_point() + 
+  geom_smooth(method="lm") +
+  ggtitle("Salario vs Años de Servicio")
+```
+
+### Distribución del salario en función de los años de experiencia (Servicio):
+
+-   **Tendencia positiva:** Existe una tendencia general ascendente entre el número de años de servicio y el salario. Esto sugiere que a medida que aumenta la experiencia laboral, también tiende a aumentar el salario.
+
+-   **Relación lineal:** La línea azul ajustada a los datos indica que la relación entre ambas variables puede aproximarse a una línea recta. Sin embargo, es importante notar que la relación no es perfecta y hay una considerable dispersión de los datos alrededor de la línea.
+
+-   **Dispersión de los datos:** Los puntos de datos no se encuentran perfectamente alineados sobre la línea de tendencia, lo que indica que otros factores además de los años de servicio influyen en el salario.
+
+-   **No linealidad potencial:** Aunque la línea recta es una buena aproximación, es posible que exista una relación no lineal subyacente. Algunos puntos de datos, especialmente en los extremos, podrían sugerir una curva en lugar de una línea recta.
+
+-   **Valores atípicos:** No se observan valores atípicos muy pronunciados en este gráfico, lo que sugiere que los datos son relativamente limpios.
+
+    **En resumen,** el gráfico muestra una relación positiva entre los años de servicio y el salario, lo que indica que, en general, a mayor experiencia, mayor salario. Sin embargo, otros factores también juegan un papel importante en la determinación del salario, y la relación no es completamente lineal.
+
+## 2.¿Podemos emplear un test paramétrico para determinar si las medias de salarios entre hombres y mujeres son las mismas o difieren? Ten en cuenta que, en tanto que se pide usar un test paramétrico, se deberá determinar si las muestras cumplen con las hipótesis necesarias.
+
+### Comparación de medias entre hombres y mujeres
+
+Usaremos un test t de Student, tras verificar la normalidad de los datos.
+
+```{r}
+# Verificar normalidad (usando prueba de Shapiro-Wilk)
+shapiro.test(data$salary[data$sex == "Male"])
+shapiro.test(data$salary[data$sex == "Female"])
+
+# Test t para comparar medias
+t.test(salary ~ sex, data = data)
+
+```
+
+-   **Hombres**: El valor p es extremadamente bajo (1.735e-08), lo que indica que se rechaza la hipótesis nula de normalidad. Es decir, los salarios de los hombres no siguen una distribución normal.
+
+-   **Mujeres**: El valor p es ligeramente superior (0.06339), por lo que, a un nivel de significancia del 5%, no se puede rechazar la hipótesis nula de normalidad. Sin embargo, está cerca del límite, por lo que la normalidad no está completamente garantizada.
+
+**Prueba t de Welch:**
+
+El valor p es muy bajo (0.002664), lo que indica que se rechaza la hipótesis nula de que las medias son iguales. Es decir, existe una diferencia estadísticamente significativa entre los salarios medios de hombres y mujeres.
+
+**¿Podemos emplear un test paramétrico?**
+
+Dado que uno de los grupos (hombres) no cumple con el supuesto de normalidad, estrictamente hablando, **no sería correcto utilizar una prueba t de Student, que es un test paramétrico**. La prueba t asume que los datos siguen una distribución normal.
+
+Aunque la prueba t sugiere una diferencia significativa en los salarios, la violación del supuesto de normalidad por parte de los datos de los hombres cuestiona la validez de esta conclusión. **Se realizará un análisis adicional utilizando una prueba no paramétrica para obtener resultados más confiables.**
+
+Para obtener una respuesta más definitiva y confiable, se sugiere realizar un análisis comparativo utilizando tanto la prueba t (para tener una idea general) como la prueba de Mann-Whitney U (para obtener resultados más robustos). Además, es importante explorar otras variables que puedan estar influyendo en la diferencia salarial, como la experiencia laboral, el nivel educativo, el sector de actividad, etc.
+
+### Prueba de Mann-Whitney U:
+
+Este código comparará los rangos medios de los salarios entre hombres y mujeres, sin asumir ninguna distribución particular para los datos.
+
+```{r}
+wilcox.test(salary ~ sex, data = data)
+```
+
+-   **W = 5182.5:** Este es el estadístico de prueba, que mide la diferencia entre los rangos de los dos grupos (en este caso, hombres y mujeres).
+
+-   **p-valor = 0.008237:** Este valor representa la probabilidad de obtener un resultado tan extremo o más extremo que el observado, asumiendo que no hay diferencia real entre los dos grupos.
+
+**Hipótesis:**
+
+-   **Hipótesis nula:** No hay diferencia en la distribución de los salarios entre hombres y mujeres.
+
+-   **Hipótesis alternativa:** Sí hay una diferencia en la distribución de los salarios entre hombres y mujeres.
+
+Dado que el p-valor (0.008237) es menor que el nivel de significancia convencional de 0.05, **rechazamos la hipótesis nula**. Esto significa que hay evidencia suficiente para concluir que existe una diferencia significativa en la distribución de los salarios entre hombres y mujeres.
+
+*Podemos afirmar que, en promedio, los hombres y las mujeres en este conjunto de datos tienen salarios significativamente diferentes. Aunque la prueba no nos dice específicamente qué grupo tiene salarios más altos, sí nos indica que existe una diferencia estadísticamente significativa entre ambos grupos.*
+
+Los resultados sugieren que existe una brecha salarial entre hombres y mujeres en la muestra analizada. Sin embargo, es importante recordar que las pruebas estadísticas solo nos permiten identificar asociaciones, no causalidad. Es decir, no podemos afirmar con certeza que el género sea la única causa de esta diferencia salarial. Otros factores, como la experiencia laboral, el nivel educativo, el sector de actividad, etc., también pueden influir en los salarios.
+
+La prueba de Wilcoxon Rank Sum nos proporciona evidencia sólida de que existe una diferencia significativa en los salarios entre hombres y mujeres en la muestra analizada. Sin embargo, es fundamental interpretar estos resultados en el contexto más amplio de la investigación y considerar otros factores que puedan estar involucrados.
+
+## 3.Divide el dataset tomando las primeras 317 instancias como train y las últimas 80 como test. Entrena un modelo de regresión lineal con regularización Ridge y Lasso en train seleccionando el que mejor **MSE** tenga. Da las métricas en test. Valora el uso del One Hot Encoder, en caso de emplearlo arguméntalo.
+
+### División del dataset en Train y Test
+
+Tomamos las primeras 317 filas como train y las últimas 80 como test.
+
+```{r}
+train <- data[1:317, ]
+test <- data[318:397, ]
+
+```
+
+### Entrenamiento de Modelos (Ridge y Lasso)
+
+Para esto, debemos codificar las variables categóricas. Es obvio el uso de **One Hot Encoder** para que los modelos puedan interpretar las categorias en variables númericas binarias, por ejemplo Sexo en lugar de Male y Female se le asigna un valor que permite a los modelos de regresión lineal (como Ridge y Lasso) interpretar estas variables de manera adecuada. Esto es especialmente importante cuando las variables categóricas no tienen un orden natural (por ejemplo, género, color).
+
+```{r}
+# One-Hot Encoding
+train_dummy <- model.matrix(salary ~ ., data = train)[,-1]
+test_dummy <- model.matrix(salary ~ ., data = test)[,-1]
+
+# Variables respuesta
+y_train <- train$salary
+y_test <- test$salary
+
+# Modelos Ridge y Lasso
+ridge <- cv.glmnet(train_dummy, y_train, alpha = 0)
+lasso <- cv.glmnet(train_dummy, y_train, alpha = 1)
+
+# Seleccionar el mejor modelo basado en MSE
+ridge_pred <- predict(ridge, s = ridge$lambda.min, newx = test_dummy)
+lasso_pred <- predict(lasso, s = lasso$lambda.min, newx = test_dummy)
+
+mse_ridge <- mean((y_test - ridge_pred)^2)
+mse_lasso <- mean((y_test - lasso_pred)^2)
+
+mse_ridge
+mse_lasso
+
+```
+
+Los resultados obtenidos indican que, en este caso particular, el modelo de **regresión Ridge** presenta un **menor Error Cuadrático Medio (MSE)** en el conjunto de prueba (606099532) en comparación con el modelo Lasso (624778073). Esto sugiere que el modelo Ridge se ajusta mejor a los datos de prueba y realiza predicciones más precisas.
+
+**Ventajas del One-Hot Encoding:**
+
+-   **Interpretabilidad:** Facilita la interpretación de los coeficientes del modelo, ya que cada categoría tiene su propio coeficiente.
+
+-   **Flexibilidad:** Se adapta bien a diferentes tipos de modelos de machine learning.
+
+-   **Evita problemas de orden:** Evita asignar un orden arbitrario a las categorías, lo que podría sesgar los resultados.
+
+Con base en base los resultados obtenidos, se puede concluir que el modelo de regresión Ridge con One-Hot Encoding es una buena opción para predecir los salarios en este conjunto de datos. Sin embargo, es importante tener en cuenta que este resultado puede variar dependiendo de diferentes factores, como el tamaño de la muestra, la distribución de los datos y la elección de los hiperparámetros.
+
+## 4.Estudia la normalidad de los residuos del modelo resultante, ¿detectas algún sesgo?
+
+Analizaremos la normalidad y presencia de sesgos en los residuos del modelo seleccionado.
+
+```{r}
+# Selección del modelo con menor MSE
+if (mse_ridge < mse_lasso) {
+  best_model <- ridge
+} else {
+  best_model <- lasso
+}
+
+residuals <- y_test - predict(best_model, s = best_model$lambda.min, newx = test_dummy)
+
+# Análisis de residuos
+qqnorm(residuals)
+qqline(residuals)
+shapiro.test(residuals)
+
+```
+
+### Interpretación del Gráfico QQ-Plot
+
+El gráfico QQ-Plot muestra una desviación clara de la línea diagonal, especialmente en las colas. Esto indica que los residuos no siguen una distribución normal.
+
+-   **Colas pesadas:** La presencia de varios puntos por encima y por debajo de la línea en las colas sugiere que hay más valores extremos (outliers) de lo que se esperaría en una distribución normal.
+
+-   **Centralidad:** En la parte central del gráfico, los puntos tienden a seguir más de cerca la línea, indicando que los valores centrales de los residuos podrían estar más cerca de una distribución normal. Sin embargo, las desviaciones en las colas son suficientes para rechazar la normalidad.
+
+### Interpretación de la Prueba de Shapiro-Wilk
+
+La prueba de Shapiro-Wilk confirma lo observado en el gráfico QQ-Plot. Un valor de p de 0.00852, significativamente menor que el nivel de significancia convencional de 0.05, nos lleva a **rechazar la hipótesis nula de que los datos provienen de una distribución normal**.
+
+-   **No normalidad de los residuos:** Los residuos del modelo no siguen una distribución normal.
+
+-   **Implicaciones:** La no normalidad de los residuos puede afectar la validez de las inferencias estadísticas basadas en el modelo, como los intervalos de confianza y los valores p. Algunos tests estadísticos asumen normalidad de los residuos, y si esta suposición se viola, los resultados pueden ser engañosos.
+
+**Posibles Causas y Soluciones**
+
+-   **Modelo incorrecto:** El modelo seleccionado puede no ser adecuado para capturar la relación entre las variables. Considerar modelos no lineales o incluir interacciones entre variables.
+
+-   **Valores atípicos:** Los valores atípicos pueden influir significativamente en la distribución de los residuos. Identificar y tratar los outliers (por ejemplo, eliminándolos o transformándolos) puede ayudar.
+
+-   **Heterocedasticidad:** La varianza de los residuos puede no ser constante a lo largo de los valores predichos. Transformar la variable dependiente o utilizar modelos de regresión ponderada puede ayudar.
+
+-   **Variables omitidas:** Puede haber variables importantes que no se han incluido en el modelo, lo que puede generar patrones en los residuos.
+
+**En conclusión,** la no normalidad de los residuos es un problema común en el análisis de regresión. Es importante abordarlo de manera adecuada para garantizar la validez de las inferencias estadísticas.
+
+## 5.¿Qué conclusiones extraes de este estudio y del modelo implementado? ¿Consideras correcto el rendimiento del mismo?
+
+-   **No Normalidad de los Residuos:** El modelo de regresión, ya sea Ridge o Lasso, presenta residuos que no siguen una distribución normal. Esto es evidente tanto en el gráfico QQ-plot como en la prueba de Shapiro-Wilk. La no normalidad de los residuos cuestiona la validez de las inferencias estadísticas basadas en este modelo, como los intervalos de confianza y los valores p.
+
+-   **Posibles Causas de la No Normalidad:**
+
+    -   **Modelo inadecuado:** El modelo lineal podría no ser la mejor opción para capturar la relación entre las variables.
+
+    -   **Valores atípicos:** La presencia de valores extremos en los datos puede influir significativamente en la distribución de los residuos.
+
+    -   **Heterocedasticidad:** La varianza de los residuos puede no ser constante a lo largo de los valores predichos.
+
+    -   **Variables omitidas:** Puede haber variables relevantes que no se han incluido en el modelo.
+
+-   **Implicaciones para el Rendimiento del Modelo:**
+
+    -   **Incertidumbre en las predicciones:** Los intervalos de confianza para las predicciones podrían ser demasiado estrechos o demasiado amplios debido a la violación de la normalidad.
+
+    -   **Inferencias estadísticas cuestionables:** Los tests de hipótesis basados en este modelo podrían no ser válidos.
+
+**¿Es correcto el rendimiento del modelo?**
+
+Dada la no normalidad de los residuos, es difícil afirmar que el rendimiento del modelo sea completamente correcto. Aunque el modelo pueda tener un buen ajuste en términos de métricas como el MSE, la calidad de las inferencias estadísticas y la precisión de las predicciones pueden verse comprometidas.
+
+**Soluciones posibles:**
+
+1.  **Transformar los datos:** Aplicar transformaciones como el logaritmo o la raíz cuadrada a la variable dependiente o a las independientes puede ayudar a normalizar los residuos.
+
+2.  **Utilizar modelos no lineales:** Considerar modelos como los Desicion Tree, los Random Forest o las redes neuronales, que pueden ser más flexibles y menos sensibles a la normalidad.
+
+3.  **Identificar y tratar los outliers:** Eliminar o transformar los valores atípicos puede mejorar la distribución de los residuos.
+
+4.  **Considerar modelos robustos:** Los modelos robustos son menos sensibles a los valores atípicos y a la no normalidad.
+
+5.  **Realizar un análisis de diagnóstico más exhaustivo:** Explorar otros gráficos de diagnóstico, como los gráficos de residuos vs. valores ajustados, para identificar patrones adicionales en los residuos.
+
+**En conclusión,** aunque el modelo de regresión lineal con regularización Ridge o Lasso puede proporcionar un buen ajuste a los datos, la no normalidad de los residuos plantea interrogantes sobre la validez de las inferencias estadísticas y la precisión de las predicciones. Es fundamental realizar un análisis más profundo y considerar modelos alternativos para obtener resultados más confiables.
